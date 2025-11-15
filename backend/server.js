@@ -22,46 +22,63 @@ app.use(cors({
 app.use(express.json());
 
 // Database connection - Use Supabase connection string
+// Note: Direct DB connection is optional - Supabase client will be used as fallback
 let pool;
-if (process.env.SUPABASE_DB_URL) {
-  // Supabase provides a direct database connection URL
-  console.log('Using SUPABASE_DB_URL for database connection');
-  pool = new Pool({
-    connectionString: process.env.SUPABASE_DB_URL,
-    ssl: { rejectUnauthorized: false }
-  });
-} else if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('supabase')) {
-  // Use DATABASE_URL if it's a Supabase connection
-  console.log('Using DATABASE_URL (Supabase) for database connection');
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-  });
-} else {
-  // Fallback: construct from Supabase URL (for Supabase hosted databases)
-  const supabaseUrl = process.env.SUPABASE_URL;
-  if (supabaseUrl) {
-    // Extract project ref from Supabase URL
-    const projectRef = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1];
-    if (projectRef && process.env.SUPABASE_DB_PASSWORD) {
-      console.log('Constructing Supabase database connection from URL');
-      pool = new Pool({
-        host: `db.${projectRef}.supabase.co`,
-        port: 5432,
-        database: 'postgres',
-        user: 'postgres',
-        password: process.env.SUPABASE_DB_PASSWORD,
-        ssl: { rejectUnauthorized: false }
-      });
-    } else {
-      console.error('Missing SUPABASE_DB_PASSWORD. Please set it in .env');
+let poolConnectionFailed = false;
+
+try {
+  if (process.env.SUPABASE_DB_URL) {
+    // Supabase provides a direct database connection URL
+    console.log('Attempting direct database connection via SUPABASE_DB_URL...');
+    pool = new Pool({
+      connectionString: process.env.SUPABASE_DB_URL,
+      ssl: { rejectUnauthorized: false },
+      // Add connection timeout and retry settings
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      max: 10
+    });
+  } else if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('supabase')) {
+    // Use DATABASE_URL if it's a Supabase connection
+    console.log('Attempting direct database connection via DATABASE_URL...');
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      max: 10
+    });
+  } else {
+    // Fallback: construct from Supabase URL (for Supabase hosted databases)
+    const supabaseUrl = process.env.SUPABASE_URL;
+    if (supabaseUrl) {
+      // Extract project ref from Supabase URL
+      const projectRef = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1];
+      if (projectRef && process.env.SUPABASE_DB_PASSWORD) {
+        console.log('Attempting direct database connection via constructed URL...');
+        pool = new Pool({
+          host: `db.${projectRef}.supabase.co`,
+          port: 5432,
+          database: 'postgres',
+          user: 'postgres',
+          password: process.env.SUPABASE_DB_PASSWORD,
+          ssl: { rejectUnauthorized: false },
+          connectionTimeoutMillis: 5000,
+          idleTimeoutMillis: 30000,
+          max: 10
+        });
+      }
     }
   }
+} catch (poolError) {
+  console.warn('Failed to create database pool:', poolError.message);
+  pool = null;
+  poolConnectionFailed = true;
 }
 
+// Database pool is optional - we can use Supabase client for queries
 if (!pool) {
-  console.error('Error: No database connection configured. Please set DATABASE_URL or SUPABASE_DB_URL in .env');
-  process.exit(1);
+  console.log('ℹ️  No direct database connection configured. Using Supabase client for all queries (this is normal).');
 }
 
 // Supabase client for auth (using service role key for backend operations)
@@ -95,8 +112,30 @@ console.log('Service Role Key:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' :
 
 // Make database and supabase available to routes
 app.locals.pool = pool;
-app.locals.supabase = supabaseService;
+app.locals.supabase = supabaseService; // Use service role for database queries
 app.locals.supabaseAnon = supabaseAnon; // For auth middleware
+
+// Test database connection (optional - non-blocking)
+if (pool) {
+  pool.query('SELECT 1')
+    .then(() => {
+      console.log('✓ Direct database connection successful');
+    })
+    .catch((err) => {
+      poolConnectionFailed = true;
+      // Suppress the error if it's a connection/auth issue - we'll use Supabase client instead
+      if (err.message.includes('Tenant or user not found') || 
+          err.message.includes('password authentication failed') ||
+          err.message.includes('connection')) {
+        console.log('ℹ️  Direct database connection unavailable (using Supabase client instead - this is fine)');
+      } else {
+        console.warn('Direct database connection test failed:', err.message);
+        console.log('ℹ️  Will use Supabase client for all queries');
+      }
+    });
+} else {
+  console.log('ℹ️  Using Supabase client for all database queries (no direct connection configured)');
+}
 
 // Routes
 app.use('/api/auth', authRoutes);
