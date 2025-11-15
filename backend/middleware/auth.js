@@ -41,18 +41,44 @@ export const authenticate = async (req, res, next) => {
 
 export const requireAdmin = async (req, res, next) => {
   try {
-    const { pool } = req.app.locals;
-    const { rows } = await pool.query(
-      'SELECT role FROM users WHERE id = $1',
-      [req.user.id]
-    );
+    const { pool, supabase } = req.app.locals;
+    let user = null;
 
-    if (!rows[0] || rows[0].role !== 'admin') {
+    if (pool) {
+      try {
+        const { rows } = await pool.query(
+          'SELECT role FROM users WHERE id = $1',
+          [req.user.id]
+        );
+        if (rows.length > 0) {
+          user = rows[0];
+        }
+      } catch (poolError) {
+        console.warn('Pool query failed, using Supabase client:', poolError.message);
+      }
+    }
+
+    // Fallback to Supabase client
+    if (!user && supabase) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', req.user.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
+      user = data;
+    }
+
+    if (!user || user.role !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
     next();
   } catch (error) {
+    console.error('Error checking admin status:', error);
     res.status(500).json({ error: 'Error checking admin status' });
   }
 };

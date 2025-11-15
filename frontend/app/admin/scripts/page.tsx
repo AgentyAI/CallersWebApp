@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Layout from '@/components/Layout';
 import api from '@/lib/api';
 
@@ -15,6 +16,7 @@ interface Script {
 }
 
 export default function ScriptsPage() {
+  const router = useRouter();
   const [scripts, setScripts] = useState<Script[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingScript, setEditingScript] = useState<Script | null>(null);
@@ -23,6 +25,13 @@ export default function ScriptsPage() {
   useEffect(() => {
     fetchScripts();
   }, []);
+
+  // Auto-show form when editingScript is set
+  useEffect(() => {
+    if (editingScript && !showForm) {
+      setShowForm(true);
+    }
+  }, [editingScript, showForm]);
 
   const fetchScripts = async () => {
     try {
@@ -38,15 +47,21 @@ export default function ScriptsPage() {
   const handleSaveScript = async () => {
     if (!editingScript) return;
 
+    if (!editingScript.specialty || !editingScript.specialty.trim()) {
+      alert('Specialty is required');
+      return;
+    }
+
     try {
       await api.post('/scripts', editingScript);
       await fetchScripts();
       setShowForm(false);
       setEditingScript(null);
       alert('Script saved successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving script:', error);
-      alert('Failed to save script');
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to save script';
+      alert(`Failed to save script: ${errorMessage}`);
     }
   };
 
@@ -56,15 +71,16 @@ export default function ScriptsPage() {
   };
 
   const handleCreateNew = () => {
-    setEditingScript({
+    const newScript: Script = {
       specialty: '',
       opening_line: '',
       qualification: '',
       talking_points: '',
       objection_handling: '',
       closing_line: ''
-    });
-    setShowForm(true);
+    };
+    setEditingScript(newScript);
+    // Form will show automatically via useEffect when editingScript is set
   };
 
   if (loading) {
@@ -84,7 +100,15 @@ export default function ScriptsPage() {
     <Layout>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Calling Scripts</h1>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.push('/admin')}
+              className="text-gray-600 hover:text-gray-900"
+            >
+              ← Back
+            </button>
+            <h1 className="text-2xl font-bold text-gray-900">Calling Scripts</h1>
+          </div>
           <button
             onClick={handleCreateNew}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
@@ -189,7 +213,10 @@ export default function ScriptsPage() {
                     Cancel
                   </button>
                   <button
-                    onClick={handleSaveScript}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleSaveScript();
+                    }}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                   >
                     Save Script

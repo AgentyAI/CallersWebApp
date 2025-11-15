@@ -99,5 +99,97 @@ router.get('/me', authenticate, async (req, res) => {
   }
 });
 
+// Update user profile
+router.patch('/profile', authenticate, async (req, res) => {
+  try {
+    const { pool, supabase } = req.app.locals;
+    const { name, email } = req.body;
+
+    if (pool) {
+      try {
+        const updates = [];
+        const values = [];
+        let paramCount = 1;
+
+        if (name !== undefined) {
+          updates.push(`name = $${paramCount++}`);
+          values.push(name);
+        }
+        if (email !== undefined) {
+          updates.push(`email = $${paramCount++}`);
+          values.push(email);
+        }
+
+        if (updates.length > 0) {
+          values.push(req.user.id);
+          await pool.query(
+            `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount}`,
+            values
+          );
+        }
+
+        const { rows } = await pool.query(
+          'SELECT id, email, role, name FROM users WHERE id = $1',
+          [req.user.id]
+        );
+
+        if (rows.length === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        return res.json(rows[0]);
+      } catch (poolError) {
+        console.warn('Pool query failed, using Supabase client:', poolError.message);
+      }
+    }
+
+    // Fallback to Supabase client
+    if (supabase) {
+      const updateData = {};
+      if (name !== undefined) updateData.name = name;
+      if (email !== undefined) updateData.email = email;
+
+      if (Object.keys(updateData).length > 0) {
+        const { data, error } = await supabase
+          .from('users')
+          .update(updateData)
+          .eq('id', req.user.id)
+          .select('id, email, role, name')
+          .single();
+
+        if (error) {
+          if (error.code === 'PGRST116') {
+            return res.status(404).json({ error: 'User not found' });
+          }
+          throw error;
+        }
+
+        return res.json(data);
+      }
+
+      // If no updates, just return current user
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, email, role, name')
+        .eq('id', req.user.id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        throw error;
+      }
+
+      return res.json(data);
+    }
+
+    return res.status(500).json({ error: 'Database not configured' });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: `Error updating profile: ${error.message}` });
+  }
+});
+
 export default router;
 

@@ -8,6 +8,7 @@ import leadsRoutes from './routes/leads.js';
 import scriptsRoutes from './routes/scripts.js';
 import appointmentsRoutes from './routes/appointments.js';
 import adminRoutes from './routes/admin.js';
+import callersRoutes from './routes/callers.js';
 
 dotenv.config();
 
@@ -113,6 +114,7 @@ console.log('Service Role Key:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' :
 // Make database and supabase available to routes
 app.locals.pool = pool;
 app.locals.supabase = supabaseService; // Use service role for database queries
+app.locals.supabaseService = supabaseService; // Service role client for admin operations (auth)
 app.locals.supabaseAnon = supabaseAnon; // For auth middleware
 
 // Test database connection (optional - non-blocking)
@@ -143,6 +145,7 @@ app.use('/api/leads', leadsRoutes);
 app.use('/api/scripts', scriptsRoutes);
 app.use('/api/appointments', appointmentsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/callers', callersRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import api from '@/lib/api';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -23,33 +24,51 @@ export default function LoginPage() {
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase auth error:', error);
+        // Provide user-friendly error messages
+        if (error.message.includes('Invalid login credentials') || error.message.includes('Email not confirmed')) {
+          setError('Invalid email or password. Please check your credentials and try again.');
+        } else if (error.message.includes('Email rate limit exceeded')) {
+          setError('Too many login attempts. Please try again later.');
+        } else {
+          setError(error.message || 'Failed to login. Please check your credentials.');
+        }
+        setLoading(false);
+        return;
+      }
 
       if (data.session) {
         // Wait a moment for session to be stored
         await new Promise(resolve => setTimeout(resolve, 100));
         
-        // Fetch user role
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${data.session.access_token}`
-          }
-        });
-
-        if (response.ok) {
-          const user = await response.json();
+        try {
+          // Fetch user role using the API client
+          const response = await api.get('/auth/me');
+          const user = response.data;
           console.log('User authenticated:', user);
+          
           // Use window.location for a full page reload to ensure session is recognized
           if (user.role === 'admin') {
             window.location.href = '/admin';
           } else {
             window.location.href = '/leads';
           }
-        } else {
-          const errorText = await response.text();
-          console.error('Auth error:', response.status, errorText);
-          console.error('Response headers:', response.headers);
-          setError(`Failed to authenticate: ${response.status} - ${errorText || 'Unknown error'}`);
+        } catch (apiError: any) {
+          console.error('API error:', apiError);
+          
+          // Check if it's a network error
+          if (apiError.code === 'ERR_NETWORK' || apiError.message?.includes('Failed to fetch')) {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+            setError(`Cannot connect to backend server. Please ensure the backend is running at ${apiUrl}`);
+          } else if (apiError.response) {
+            // Server responded with error
+            const status = apiError.response.status;
+            const errorText = apiError.response.data?.error || apiError.response.statusText || 'Unknown error';
+            setError(`Authentication failed (${status}): ${errorText}`);
+          } else {
+            setError(`Failed to authenticate: ${apiError.message || 'Unknown error'}`);
+          }
         }
       }
     } catch (err: any) {
