@@ -218,6 +218,22 @@ npm start
 
 2. The backend uses `node server.js` in production (set `NODE_ENV=production`)
 
+## Deployment to Vercel
+
+This app is configured for deployment on Vercel. See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for detailed deployment instructions.
+
+### Quick Deploy
+
+1. Push your code to GitHub/GitLab/Bitbucket
+2. Import the repository in [Vercel](https://vercel.com/new)
+3. Add environment variables (see VERCEL_DEPLOYMENT.md)
+4. Deploy!
+
+The app is configured with:
+- Next.js frontend (auto-detected by Vercel)
+- Express backend as serverless functions
+- Automatic routing via `vercel.json`
+
 ## Notes
 
 - The app uses Supabase Auth for authentication. Users are automatically created in the database on first login.

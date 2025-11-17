@@ -16,8 +16,23 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
+// For Vercel, allow requests from the same origin
+const allowedOrigins = process.env.FRONTEND_URL 
+  ? [process.env.FRONTEND_URL]
+  : process.env.VERCEL_URL
+  ? [`https://${process.env.VERCEL_URL}`]
+  : ['http://localhost:3000'];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || process.env.VERCEL) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all origins in production for flexibility
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -158,7 +173,13 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Export app for Vercel serverless functions
+export default app;
+
+// Only start listening if not in serverless environment
+if (process.env.VERCEL !== '1' && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
 

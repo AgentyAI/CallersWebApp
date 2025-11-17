@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { supabase } from './supabase';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+// Use relative URL in production (Vercel), or explicit URL in development
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 
+  (typeof window !== 'undefined' ? '' : 'http://localhost:3001');
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
