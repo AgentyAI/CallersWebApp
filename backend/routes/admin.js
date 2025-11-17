@@ -693,5 +693,196 @@ router.delete('/leads/:id', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// Split unassigned leads evenly among callers
+router.post('/leads/split', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { pool, supabase } = req.app.locals;
+    const { caller_ids, statuses, specialties } = req.body;
+
+    // Get all callers (if specific callers provided, use those; otherwise use all)
+    let targetCallers = [];
+    
+    if (pool) {
+      try {
+        let callerQuery = 'SELECT id FROM users WHERE role = $1';
+        const callerParams = ['caller'];
+        
+        if (caller_ids && Array.isArray(caller_ids) && caller_ids.length > 0) {
+          callerQuery += ` AND id = ANY($2)`;
+          callerParams.push(caller_ids);
+        }
+        
+        const callerResult = await pool.query(callerQuery, callerParams);
+        targetCallers = callerResult.rows.map(row => row.id);
+        
+        if (targetCallers.length === 0) {
+          return res.status(400).json({ error: 'No callers found to assign leads to' });
+        }
+        
+        // Get unassigned leads (optionally filtered by status and specialty)
+        let leadsQuery = 'SELECT id FROM leads WHERE assigned_caller_id IS NULL';
+        const leadsParams = [];
+        let paramCount = 1;
+        
+        if (statuses && Array.isArray(statuses) && statuses.length > 0) {
+          leadsQuery += ` AND status = ANY($${paramCount++})`;
+          leadsParams.push(statuses);
+        }
+        
+        if (specialties && Array.isArray(specialties) && specialties.length > 0) {
+          leadsQuery += ` AND specialty = ANY($${paramCount++})`;
+          leadsParams.push(specialties);
+        }
+        
+        leadsQuery += ' ORDER BY created_at';
+        
+        const leadsResult = await pool.query(leadsQuery, leadsParams);
+        const unassignedLeads = leadsResult.rows.map(row => row.id);
+        
+        if (unassignedLeads.length === 0) {
+          return res.json({ 
+            success: true, 
+            message: 'No unassigned leads found to split',
+            assigned: 0,
+            per_caller: {}
+          });
+        }
+        
+        // Distribute leads evenly among callers (round-robin)
+        const assignments = {};
+        const perCallerCount = {};
+        
+        unassignedLeads.forEach((leadId, index) => {
+          const callerIndex = index % targetCallers.length;
+          const callerId = targetCallers[callerIndex];
+          
+          if (!assignments[callerId]) {
+            assignments[callerId] = [];
+            perCallerCount[callerId] = 0;
+          }
+          
+          assignments[callerId].push(leadId);
+          perCallerCount[callerId]++;
+        });
+        
+        // Execute assignments in batches for each caller
+        let totalAssigned = 0;
+        for (const [callerId, leadIds] of Object.entries(assignments)) {
+          if (leadIds.length > 0) {
+            await pool.query(
+              'UPDATE leads SET assigned_caller_id = $1 WHERE id = ANY($2)',
+              [callerId, leadIds]
+            );
+            totalAssigned += leadIds.length;
+          }
+        }
+        
+        return res.json({
+          success: true,
+          message: `Successfully split ${totalAssigned} leads among ${targetCallers.length} callers`,
+          assigned: totalAssigned,
+          per_caller: perCallerCount
+        });
+      } catch (poolError) {
+        console.warn('Pool query failed, using Supabase client:', poolError.message);
+      }
+    }
+    
+    // Fallback to Supabase client
+    if (supabase) {
+      // Get all callers
+      let callersQuery = supabase.from('users').select('id').eq('role', 'caller');
+      
+      if (caller_ids && Array.isArray(caller_ids) && caller_ids.length > 0) {
+        callersQuery = callersQuery.in('id', caller_ids);
+      }
+      
+      const { data: callersData, error: callersError } = await callersQuery;
+      
+      if (callersError) throw callersError;
+      
+      if (!callersData || callersData.length === 0) {
+        return res.status(400).json({ error: 'No callers found to assign leads to' });
+      }
+      
+      targetCallers = callersData.map(c => c.id);
+      
+      // Get unassigned leads
+      let leadsQuery = supabase.from('leads').select('id').is('assigned_caller_id', null);
+      
+      if (statuses && Array.isArray(statuses) && statuses.length > 0) {
+        leadsQuery = leadsQuery.in('status', statuses);
+      }
+      
+      if (specialties && Array.isArray(specialties) && specialties.length > 0) {
+        leadsQuery = leadsQuery.in('specialty', specialties);
+      }
+      
+      const { data: leadsData, error: leadsError } = await leadsQuery.order('created_at', { ascending: true });
+      
+      if (leadsError) throw leadsError;
+      
+      if (!leadsData || leadsData.length === 0) {
+        return res.json({
+          success: true,
+          message: 'No unassigned leads found to split',
+          assigned: 0,
+          per_caller: {}
+        });
+      }
+      
+      const unassignedLeads = leadsData.map(l => l.id);
+      
+      // Distribute leads evenly (round-robin)
+      const assignments = {};
+      const perCallerCount = {};
+      
+      unassignedLeads.forEach((leadId, index) => {
+        const callerIndex = index % targetCallers.length;
+        const callerId = targetCallers[callerIndex];
+        
+        if (!assignments[callerId]) {
+          assignments[callerId] = [];
+          perCallerCount[callerId] = 0;
+        }
+        
+        assignments[callerId].push(leadId);
+        perCallerCount[callerId]++;
+      });
+      
+      // Execute assignments
+      let totalAssigned = 0;
+      for (const [callerId, leadIds] of Object.entries(assignments)) {
+        if (leadIds.length > 0) {
+          // Supabase doesn't support batch updates with ANY, so we do it in chunks
+          const chunkSize = 100;
+          for (let i = 0; i < leadIds.length; i += chunkSize) {
+            const chunk = leadIds.slice(i, i + chunkSize);
+            const { error: updateError } = await supabase
+              .from('leads')
+              .update({ assigned_caller_id: callerId })
+              .in('id', chunk);
+            
+            if (updateError) throw updateError;
+          }
+          totalAssigned += leadIds.length;
+        }
+      }
+      
+      return res.json({
+        success: true,
+        message: `Successfully split ${totalAssigned} leads among ${targetCallers.length} callers`,
+        assigned: totalAssigned,
+        per_caller: perCallerCount
+      });
+    }
+    
+    return res.status(500).json({ error: 'Database not configured' });
+  } catch (error) {
+    console.error('Error splitting leads:', error);
+    res.status(500).json({ error: `Error splitting leads: ${error.message}` });
+  }
+});
+
 export default router;
 

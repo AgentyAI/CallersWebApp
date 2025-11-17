@@ -77,6 +77,11 @@ export default function AdminPage() {
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [sortOption, setSortOption] = useState<'recent' | 'alphabetical' | 'specialty'>('recent');
   const [customRegion, setCustomRegion] = useState('Αττικη');
+  const [showSplitLeads, setShowSplitLeads] = useState(false);
+  const [splittingLeads, setSplittingLeads] = useState(false);
+  const [selectedCallersForSplit, setSelectedCallersForSplit] = useState<string[]>([]);
+  const [splitStatuses, setSplitStatuses] = useState<string[]>([]);
+  const [splitSpecialties, setSplitSpecialties] = useState<string[]>([]);
 
   useEffect(() => {
     fetchMetrics();
@@ -226,6 +231,43 @@ export default function AdminPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortOption]);
+
+  const handleSplitLeads = async () => {
+    if (callers.length === 0) {
+      alert('No callers available. Please create callers first.');
+      return;
+    }
+
+    const targetCallers = selectedCallersForSplit.length > 0 ? selectedCallersForSplit : callers.map(c => c.id);
+    
+    if (targetCallers.length === 0) {
+      alert('Please select at least one caller to split leads among');
+      return;
+    }
+
+    setSplittingLeads(true);
+    try {
+      const response = await api.post('/admin/leads/split', {
+        caller_ids: selectedCallersForSplit.length > 0 ? selectedCallersForSplit : undefined,
+        statuses: splitStatuses.length > 0 ? splitStatuses : undefined,
+        specialties: splitSpecialties.length > 0 ? splitSpecialties : undefined
+      });
+
+      alert(response.data.message || `Successfully split ${response.data.assigned} leads among ${targetCallers.length} callers`);
+      setShowSplitLeads(false);
+      setSelectedCallersForSplit([]);
+      setSplitStatuses([]);
+      setSplitSpecialties([]);
+      fetchLeads();
+      fetchMetrics();
+    } catch (error: any) {
+      console.error('Error splitting leads:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to split leads';
+      alert(`Failed to split leads: ${errorMessage}`);
+    } finally {
+      setSplittingLeads(false);
+    }
+  };
 
   const handleDeleteLead = async (leadId: string, leadName: string) => {
     if (!confirm(`Are you sure you want to delete "${leadName}"? This action cannot be undone.`)) {
@@ -651,6 +693,12 @@ export default function AdminPage() {
                 <h2 className="text-xl font-bold">Manage Leads</h2>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => setShowSplitLeads(true)}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+                  >
+                    Split Leads
+                  </button>
+                  <button
                     onClick={() => setShowBulkUpdate(true)}
                     className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
                   >
@@ -938,6 +986,135 @@ export default function AdminPage() {
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                 >
                   {uploading ? 'Updating...' : 'Update All Specialties'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSplitLeads && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+              <h2 className="text-xl font-bold mb-4">Split Leads Among Callers</h2>
+              <p className="text-gray-600 mb-4">
+                This will evenly distribute all unassigned leads among the selected callers. No two callers will receive the same lead.
+              </p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Callers (leave empty to use all callers)
+                  </label>
+                  <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto">
+                    {callers.length === 0 ? (
+                      <p className="text-sm text-gray-500">No callers available</p>
+                    ) : (
+                      callers.map((caller) => (
+                        <label key={caller.id} className="flex items-center space-x-2 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedCallersForSplit.includes(caller.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedCallersForSplit([...selectedCallersForSplit, caller.id]);
+                              } else {
+                                setSelectedCallersForSplit(selectedCallersForSplit.filter(id => id !== caller.id));
+                              }
+                            }}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {caller.name || caller.email}
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    If no callers are selected, all callers will be used
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Filter by Status (optional - leave empty to include all statuses)
+                  </label>
+                  <div className="border border-gray-300 rounded-lg p-3 max-h-32 overflow-y-auto">
+                    {['new', 'contacted', 'appointment_booked', 'not_interested', 'follow_up'].map((status) => (
+                      <label key={status} className="flex items-center space-x-2 py-1">
+                        <input
+                          type="checkbox"
+                          checked={splitStatuses.includes(status)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSplitStatuses([...splitStatuses, status]);
+                            } else {
+                              setSplitStatuses(splitStatuses.filter(s => s !== status));
+                            }
+                          }}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-700 capitalize">
+                          {status.replace('_', ' ')}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Filter by Specialty (optional - leave empty to include all specialties)
+                  </label>
+                  <div className="border border-gray-300 rounded-lg p-3 max-h-32 overflow-y-auto">
+                    {getUniqueSpecialties().map((specialty) => (
+                      <label key={specialty} className="flex items-center space-x-2 py-1">
+                        <input
+                          type="checkbox"
+                          checked={splitSpecialties.includes(specialty)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSplitSpecialties([...splitSpecialties, specialty]);
+                            } else {
+                              setSplitSpecialties(splitSpecialties.filter(s => s !== specialty));
+                            }
+                          }}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-700">
+                          {specialty}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                  <p className="text-sm text-gray-700">
+                    Only unassigned leads will be split. Leads that are already assigned to a caller will not be affected.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-4 mt-6">
+                <button
+                  onClick={() => {
+                    setShowSplitLeads(false);
+                    setSelectedCallersForSplit([]);
+                    setSplitStatuses([]);
+                    setSplitSpecialties([]);
+                  }}
+                  disabled={splittingLeads}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSplitLeads}
+                  disabled={splittingLeads}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {splittingLeads ? 'Splitting...' : 'Split Leads'}
                 </button>
               </div>
             </div>
