@@ -35,6 +35,8 @@ interface Caller {
   id: string;
   email: string;
   name?: string;
+  leads_count?: number;
+  scripts_count?: number;
 }
 
 export default function AdminPage() {

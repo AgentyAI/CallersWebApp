@@ -10,13 +10,123 @@ This guide will help you deploy the Cold Callers app to Vercel.
 
 ## Deployment Steps
 
-### 1. Install Vercel CLI (Optional)
+### Option A: Deploy via Command Line (CLI)
+
+#### 1. Install Vercel CLI
 
 ```bash
 npm i -g vercel
 ```
 
-### 2. Deploy via Vercel Dashboard
+#### 2. Navigate to Project Root
+
+```bash
+cd "/Users/alex/Desktop/Code/Cold callers app"
+```
+
+#### 3. Login to Vercel
+
+```bash
+vercel login
+```
+
+This will open your browser to authenticate. Follow the prompts.
+
+#### 4. Link Your Project (First Time Only)
+
+```bash
+vercel link
+```
+
+When prompted:
+- **Set up and develop?** → Yes
+- **Which scope?** → Select your account/team
+- **Link to existing project?** → No (for first deployment)
+- **Project name?** → `cold-callers-app` (or your preferred name)
+- **Directory?** → `./` (current directory)
+
+#### 5. Set Environment Variables
+
+Set all required environment variables. Replace the placeholder values with your actual Supabase credentials:
+
+```bash
+vercel env add SUPABASE_URL
+# When prompted, paste your Supabase URL (e.g., https://xxx.supabase.co)
+# Select: Production, Preview, and Development
+
+vercel env add SUPABASE_ANON_KEY
+# Paste your Supabase anon key
+# Select: Production, Preview, and Development
+
+vercel env add SUPABASE_SERVICE_ROLE_KEY
+# Paste your Supabase service role key (keep this secret!)
+# Select: Production, Preview, and Development
+
+vercel env add NEXT_PUBLIC_SUPABASE_URL
+# Paste the same Supabase URL as above
+# Select: Production, Preview, and Development
+
+vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY
+# Paste the same anon key as above
+# Select: Production, Preview, and Development
+```
+
+**Optional environment variables** (if you have direct database access):
+
+```bash
+vercel env add SUPABASE_DB_URL
+# Paste your database connection string
+# Select: Production, Preview, and Development
+
+# Or alternatively:
+vercel env add DATABASE_URL
+# Paste your database connection string
+# Select: Production, Preview, and Development
+```
+
+#### 6. Deploy to Production
+
+```bash
+vercel --prod
+```
+
+This will:
+- Build your application
+- Deploy to production
+- Give you a production URL
+
+#### 7. (Optional) Deploy to Preview
+
+For testing before production:
+
+```bash
+vercel
+```
+
+This creates a preview deployment.
+
+#### Useful Commands
+
+```bash
+# View deployment logs
+vercel logs
+
+# View environment variables
+vercel env ls
+
+# Remove an environment variable
+vercel env rm VARIABLE_NAME
+
+# View project info
+vercel inspect
+
+# List all deployments
+vercel ls
+```
+
+---
+
+### Option B: Deploy via Vercel Dashboard
 
 1. Go to [vercel.com/new](https://vercel.com/new)
 2. Import your Git repository (GitHub, GitLab, or Bitbucket)
