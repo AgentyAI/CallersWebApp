@@ -50,7 +50,7 @@ When prompted:
 Set all required environment variables. Replace the placeholder values with your actual Supabase credentials:
 
 ```bash
-vercel env add SUPABASE_URL
+vercel env  add SUPABASE_URL
 # When prompted, paste your Supabase URL (e.g., https://xxx.supabase.co)
 # Select: Production, Preview, and Development
 
